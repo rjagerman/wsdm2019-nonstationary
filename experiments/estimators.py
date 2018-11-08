@@ -200,11 +200,6 @@ class LipschitzEstimator(Aggregator):
         # self.window.extend(values.data)
         cv = self.current_avg.add(values.data)
         self.window.append(cv)
-        # elements = []
-        # while len(self.window) > self.change_detection_window:
-        #     elements.append(self.window.pop())
-        # if len(elements) > 0:
-        #     self.previous_avg.add(as_variable(np.array(elements)))
         return self.estimate()
 
     def estimate(self):
@@ -242,12 +237,10 @@ class AdaptiveExponentialAggregator(Aggregator):
         if self.k == 0:
             self.alpha = self.initial_alpha
         else:
-
-            # We can compute a closed-form of alpha, instead of numerically
+            # We can compute a closed-form of alpha
             sqk = np.sqrt(self.factor * np.abs(self.k))
             sq2 = np.sqrt(2)
             self.alpha = np.clip(-(sqk - sq2) / (sqk + sq2), 1e-10, 1.0 - 1e-10)
-            # self.alpha = self.initial_alpha
 
         # Set alpha
         self.adaptive_estimator.alpha = self.alpha
@@ -285,26 +278,15 @@ class AdaptiveWindowAggregator(Aggregator):
         self.n += r_hat.shape[0]
         self.k = self.lipschitz_estimator.add(r_hat)
 
-        # Find optimal alpha
+        # Find optimal tau
         if self.k == 0:
             self.tau = self.intial_tau
         else:
-            # def f(a):
-            #     bias = abs(self.k) * a / ((1 - a) * (1 - a ** self.n))
-            #     var = ((1 - a) ** 2 * (a ** (2 * self.n) - 1)) / (
-            #                 (a ** 2 - 1) * (1 - a ** self.n))
-            #     return (1.0 / self.factor) * (bias ** 2) + var
-            # alpha, _ = dlib.find_min_global(f, [1e-10], [1.0 - 1e-10],
-            #                                 num_function_calls=100,
-            #                                 solver_epsilon=1e-5)
-            # self.alpha = alpha[0]
-
-            # We can compute a closed-form of alpha, instead of numerically
+            # We can compute a closed-form of tau
             tau_est = np.sqrt(2 / np.abs(self.factor * self.k))
             self.tau = np.clip(tau_est, 500, 500000)
-            # self.alpha = self.initial_alpha
 
-        # Set alpha
+        # Set tau
         self.adaptive_estimator.tau = self.tau
 
         if self.should_print:
@@ -319,117 +301,3 @@ class AdaptiveWindowAggregator(Aggregator):
         # Return result
         result = self.adaptive_estimator.add(r_hat)
         return result
-
-
-# class OldAdaptiveWindowAggregator(Aggregator):
-#     def __init__(self, estimator, tau_1=1000, tau_2=10000, p=500.0, tau_k=10,
-#                  should_print=False):
-#         super().__init__(estimator)
-#         self.tau_1 = tau_1
-#         self.tau_2 = tau_2
-#         self.est_1 = WindowAggregator(estimator, tau_1)
-#         self.est_2 = WindowAggregator(estimator, tau_2)
-#         self.adaptive_est = WindowAggregator(estimator, tau_1)
-#         self.tau_est = WindowAggregator(None, 10)
-#         self.k_est = WindowAggregator(None, tau_k)
-#         self.n = 0
-#         self.should_print = should_print
-#         self.true_k = None
-#         self.p = p
-#
-#     def add(self, r_hat):
-#         xp = cuda.get_array_module(r_hat)
-#         self.n += r_hat.shape[0]
-#         if self.true_k is None:
-#             k = self.k_est.mean
-#         else:
-#             k = self.true_k
-#
-#         # Compute sample variance
-#         sample_var = xp.var(self.est_2.window)
-#
-#         # Find optimal tau
-#         def f(tau):
-#             bias = abs(k) * (tau - 1) / 2
-#             var = 1 / tau
-#             return bias**2 + self.p * var
-#         tau, _ = dlib.find_min_global(f, [1], [1000000], [True], num_function_calls=50)
-#         tau = int(round(tau[0]))
-#
-#         # Update k based on Lipschitz estimation
-#         v1 = self.est_1.add(r_hat)
-#         v2 = self.est_2.add(r_hat)
-#         k = (v1 - v2) / (self.tau_2 - self.tau_1)
-#         self.k_est.add(as_variable(xp.array([k])))
-#
-#         # Print if necessary
-#         if self.should_print:
-#             print("=" * 100)
-#             print(f"n: {self.n}    sv: {sample_var}")
-#             print(f"adaptive tau: {tau}")
-#             print(f"v1: {v1}    v2 {v2}    k: {k}")
-#             print(f"est: {self.adaptive_est.mean}")
-#
-#         # Set tau on our estimator
-#         # tau = self.tau_est.add(as_variable(xp.array([tau])))
-#         self.adaptive_est.tau = tau
-#         return self.adaptive_est.add(r_hat)
-#
-# class OldAdaptiveExponentialAggregator(Aggregator):
-#     def __init__(self, estimator, alpha_1=0.999, alpha_2=0.9999, p=500.0,
-#                  alpha_k=0.75, should_print=False, change_window=10):
-#         super().__init__(estimator)
-#         self.alpha_1 = alpha_1
-#         self.alpha_2 = alpha_2
-#         self.p = p
-#         self.n = 0
-#         self.est_1 = ExponentialAggregator(estimator, alpha_1)
-#         self.est_2 = ExponentialAggregator(estimator, alpha_1)
-#         self.change_window = deque(maxlen=change_window)
-#         self.adaptive_est = ExponentialAggregator(estimator, self.alpha_2)
-#         self.alpha_est = ExponentialAggregator(None, 0.9)
-#         self.k_est = ExponentialAggregator(None, alpha_k)
-#         self.should_print = should_print
-#         self.true_k = None
-#
-#     def add(self, r_hat):
-#
-#         # Compute k based on Lipschitz estimation
-#         xp = cuda.get_array_module(r_hat)
-#         self.n += r_hat.shape[0]
-#         if self.true_k is None:
-#             k = self.k_est
-#         else:
-#             k = self.true_k
-#
-#         # Compute sample variance
-#         sample_var = self.est_2.var
-#
-#         # Find optimal alpha
-#         def f(a):
-#             bias = abs(k) * a / ((1 - a)*(1 - a**self.n))
-#             var = ((1 - a)**2 * (a**(2*self.n) - 1)) / ((a**2 - 1) * (1 - a**self.n))
-#             return bias**2 + self.p * var
-#         alpha, _ = dlib.find_min_global(f, [1e-10], [1.0 - 1e-10], num_function_calls=100)
-#         alpha = alpha[0]
-#
-#         # Update k based on Lipschitz estimation
-#         v1 = self.est_1.add(r_hat)
-#         v2 = self.est_2.add(r_hat)
-#         n_v1 = 1 / (1 - self.alpha_1)
-#         n_v2 = 1 / (1 - self.alpha_2)
-#         k = (v1 - v2) / (n_v1 - n_v2)
-#         k = self.k_est.add(as_variable(xp.array([k])))
-#         self.k_est = k
-#
-#         if self.should_print:
-#             print("=" * 100)
-#             print(f"n: {self.n}    sv: {sample_var}")
-#             print(f"adaptive alpha: {alpha}")
-#             print(f"vc: {vc}    vp {self.change_window[0]}    k: {k}")
-#             print(f"est: {self.adaptive_est.mean}")
-#
-#         # Set alpha on our estimator and return the result
-#         # alpha = self.alpha_est.add(as_variable(xp.array([alpha])))
-#         self.adaptive_est.alpha = alpha
-#         return self.adaptive_est.add(r_hat)
