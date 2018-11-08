@@ -9,3 +9,6 @@ PYTHON ?= python
 include scripts/data.mk
 include scripts/train.mk
 include scripts/estimators.mk
+
+all: lastfm/results delicious/results
+
